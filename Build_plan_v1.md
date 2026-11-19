@@ -22,7 +22,7 @@ A release is complete only when its supported workflows pass the release gates. 
 | Money | Company supplier payments; internal deposits, withdrawals and transfers; transit account when needed; fees and other receipts/disbursements with explicit review. |
 | Settlement | Partial payments; one payment across multiple invoices; purchase advances; application to invoices; refundable security; capacity checks. |
 | People | Any authorized person can pay a supplier; original entitlement; partial reimbursement/return; date/time, method, proof and remaining due. |
-| Contracts | Gross commitment ceiling, linked invoices, deposits, dated/milestone installments, explicit retirement of invoice-covered contract milestones. |
+| Contracts | Commitment ceiling with VAT-included toggle and same-basis comparison, linked invoices, deposits, dated/milestone installments, explicit retirement of invoice-covered contract milestones. |
 | Basic credits/refunds | Single-sign linked credit, same-supplier offset, credit/advance refund to company or original person; origin/capacity checks. |
 | Review | >=5m internal payment exceptions; missing evidence; separate funding, VAT and CIT reviews; reviewer/date/basis and persistent follow-up. |
 | Views | Dashboard, cash/bank ledgers, purchase/payment detail, person due, advances/security, commitments and upcoming obligations. |
@@ -34,7 +34,8 @@ A release is complete only when its supported workflows pass the release gates. 
 - Asset register, depreciation and asset-cost splitting. Keep CAPEX treatment and serial/location notes.
 - Mixed-sign legal adjustments, automatic replacement settlement migration, generic full-payment reversal automation, capital restructuring and personal receivables from misdirected company refunds. Preserve supporting documents and record an unresolved review case; block unsupported posting rather than inventing an ordinary transaction.
 - Bulk document ZIP downloads, immutable export packages, delivery baselines, delta corrections, acknowledgement chains and export watermarks. The first is optional later; the remaining export machinery is intentionally excluded.
-- Extra user logins, LAN/cloud access, bank feeds, patient records, payroll, inventory valuation and automated tax conclusions.
+- Payroll in any form (payroll-summary payables, staff-cost categories, salary payments): a later stage.
+- Extra user logins, LAN/cloud access, bank feeds, patient records, inventory valuation and automated tax conclusions.
 - Budgets, configurable dashboards, advanced charts, large asynchronous exports and general historical import tooling.
 
 If a deferred operation appears in the actual opening data or pilot, resolve it before live use or extend the schedule. A review case preserves the problem but is not a substitute for recording the correct financial outcome.
@@ -103,7 +104,13 @@ For uninvoiced deposits, default to bank where known contract gross is >=5m or u
 
 ### Contract comparison basis
 
-Week one stores a **gross VAT-inclusive commitment ceiling** to avoid mixed-basis totals. An exclusive-VAT quotation retains its original attachment and note; the owner supplies an explicitly estimated gross ceiling, marked provisional if tax is unknown. Do not add a VAT toggle that compares net invoicing with gross payments without reconciliation. Full quotation-basis support can follow later.
+Each contract has a **"VAT included" toggle** (`ceiling_vat_included`) next to its ceiling amount. To avoid mixed-basis totals, the ceiling is only compared with invoices on the same basis (Specification_v2 §4.3):
+
+- **Toggle on:** ceiling vs linked invoices' gross.
+- **Toggle off:** ceiling vs linked invoices' line net, labelled "excl. VAT" on screen and in Excel.
+- **Paid** is always the actual VND paid, shown beside the comparison, never subtracted from an excl. VAT ceiling.
+- **Dashboard commitments** show VAT-included and VAT-excluded contracts as two separate figures.
+- **Contract milestones** use the ceiling's basis; invoice installments are always gross.
 
 ## 5. Owner screens
 
@@ -190,7 +197,7 @@ The financial services below should reuse the common command, allocation, docume
 
 | ID | Min | Task | Done when |
 |---|---:|---|---|
-| 5.1 | 45 | Contract input/detail, gross ceiling and commitment query. | Committed/invoiced/paid shown separately; provisional basis labelled. |
+| 5.1 | 45 | Contract input/detail, ceiling + VAT-included toggle, same-basis commitment query. | Committed/invoiced/paid shown separately; toggle off compares with invoice net and is labelled "excl. VAT"; dashboard keeps the two bases apart. |
 | 5.2 | 45 | Purchase advance/security lots and deposit allocation. | Funding an advance reduces money once; security not OPEX. |
 | 5.3 | 45 | Advance-application service and compact form. | Apply to invoice without another payment; supplier/capacity validated. |
 | 5.4 | 45 | Installment editor, settlement and schedule conversion. | Covered contract milestones retired; no duplicate future obligation. |
@@ -258,7 +265,7 @@ Freeze headers, add filters, write identifiers/text literally, write VND as exac
 | Funding | 1bn received as cash, 400m deposited, 100m paid from bank →cash 600m, bank 300m, combined 900m; funding receipt remains 1bn. Pending vs confirmed class distinct. |
 | Policy | 4,999,999 / 5,000,000 / 5,000,001 and 1m installment on 10m invoice; exception captured in input, not only dashboard. |
 | People | 3.8m personal payment, partial cash/bank reimbursements; 11m exceptional personal payment; mixed company/two-person invoice payments. |
-| Contracts | 1.3bn equipment, 300m advance, invoice application, 700m/300m payments; one purchase and correct schedule, never 1.6bn paid. |
+| Contracts | 1.3bn equipment, 300m advance, invoice application, 700m/300m payments; one purchase and correct schedule, never 1.6bn paid. Same flow with the VAT toggle off: no false over-ceiling warning, basis labelled. |
 | Returns | Credit refund vs offset capacity; partial advance refund; personal vs company refund recipient; excess personal refund blocked pending reimbursement return. |
 | Openings | Cash, bank, unpaid bill, credit, advance, person due, loan/equity history all enter once; no duplicate current-period spending/funding. |
 | Reviews | VAT codes distinct; unknown recovery blank; approved signed credit amounts validated; independent CIT/funding/policy decisions and history. |

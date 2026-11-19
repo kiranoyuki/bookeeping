@@ -1,6 +1,6 @@
 # Vietnam dental clinic bookkeeping MVP — implementation specification v2
 
-Version 2.0 · 13 November 2026 · Revised plan; no application is delivered by this specification.
+Version 2.1 · 13 November 2026 · Revised plan; no application is delivered by this specification.
 
 ## 1. Purpose and agreed scope
 
@@ -24,7 +24,7 @@ One authenticated owner operates the MVP. Payers and accountant reviewers are re
 
 VND only, whole đồng stored as signed 64-bit integers; never floating point. Dates are Vietnam business dates; timestamps are UTC, displayed in `Asia/Ho_Chi_Minh`. Keep invoice issue date, received date, recognition date, payment date/time, and entry timestamp separate. Foreign currency is rejected with an explanatory message.
 
-Out of scope: statutory general ledger, patient billing or health records, payroll calculation, inventory valuation, depreciation engine, bank feeds, e-invoice issuance, tax filing, multicurrency, offline sync, and multi-company operation. Basic asset candidates and payroll-summary payables are allowed. OCR is optional assistance; manual entry must always work.
+Out of scope: statutory general ledger, patient billing or health records, payroll (deferred to a later stage, including payroll-summary payables and staff-cost categories), inventory valuation, depreciation engine, bank feeds, e-invoice issuance, tax filing, multicurrency, offline sync, and multi-company operation. Basic asset candidates are allowed. OCR is optional assistance; manual entry must always work.
 
 ## 2. Internal policy and accountant review
 
@@ -93,7 +93,7 @@ Opening obligations are materialized through the normal settlement model: unpaid
 
 | Table | Required business columns / constraints |
 |---|---|
-| `contract` | Supplier FK, reference?, project?, signed_date?, gross ceiling >=0, description, status, review status. Changes to ceiling require reason/addendum reference. |
+| `contract` | Supplier FK, reference?, project?, signed_date?, ceiling amount >=0, `ceiling_vat_included` boolean (toggle: 1 = the contract amount includes VAT, 0 = it excludes VAT), description, status, review status. Changes to the ceiling or the toggle require reason/addendum reference. See the contract comparison basis rule below. |
 | `bill` | Supplier FK, contract FK?, kind (`VAT_INVOICE`, `SALES_INVOICE`, `RECEIPT`, `NO_INVOICE`, `OTHER`), effect (`CHARGE`, `CREDIT`, `MIXED_ADJUSTMENT`), form?, series?, number?, invoice date?, received date, recognition date, description, signed rounding, stated gross?, origin (`LIVE`, `OPENING`), opening_item_id?, status. |
 | `bill_party_fact` | Bill FK, role (`ISSUER`, `RECIPIENT`), issued name/tax code/address. Unique bill+role. Master-party edits never rewrite issued facts. |
 | `bill_line` | Bill FK, line_no >0, description, quantity text?, signed net, VAT code FK, signed printed VAT, category FK, treatment, project?, classification review. Unique bill+line_no. Authoritative money comes from invoice amounts, not quantity multiplication. |
@@ -105,7 +105,9 @@ Opening obligations are materialized through the normal settlement model: unpaid
 | `installment_settlement` | Installment FK, settlement-source record FK, amount >0. Source is a validated positive bill allocation or advance application; use separate nullable FKs with exactly-one CHECK. No extra money movement. |
 | `asset_candidate` | Description, kind, serial/location?, acceptance/in-service dates?, accountant asset code?, status, note. Cost links to bill lines with component amounts and provisional VAT flag. No depreciation engine. |
 
-Management treatments: `CAPEX`, `OPEX`, `PREPAYMENT`, `REFUNDABLE_DEPOSIT`, `INVENTORY_REVIEW`, `UNCLASSIFIED`. Suggested categories retain equipment, fit-out, furniture/IT, premises, advance rent, opening costs, operations, clinical supplies, and people. Classification is not statutory recognition.
+**Contract comparison basis.** The ceiling is compared only with invoice amounts on the same basis, never mixed. When `ceiling_vat_included` = 1, the ceiling is compared with linked invoices' gross (net + printed VAT + rounding). When it is 0, the ceiling is compared with linked invoices' line net (excl. VAT), and every screen and export labels the comparison "excl. VAT". Contract milestone amounts use the ceiling's basis. Money paid is always actual VND paid (gross), shown beside the comparison but never subtracted from an excl. VAT ceiling. Dashboard commitment totals show VAT-included and VAT-excluded contracts as two separate figures, never one sum.
+
+Management treatments: `CAPEX`, `OPEX`, `PREPAYMENT`, `REFUNDABLE_DEPOSIT`, `INVENTORY_REVIEW`, `UNCLASSIFIED`. Suggested categories retain equipment, fit-out, furniture/IT, premises, advance rent, opening costs, operations, and clinical supplies. Staff-cost/payroll categories are deferred with payroll. Classification is not statutory recognition.
 
 Invoice gross = sum(line net + printed VAT) + rounding. CHARGE lines nonnegative, CREDIT lines nonpositive; MIXED_ADJUSTMENT requires a related bill and review note. Net sign determines settlement direction; zero-total bills accept no settlement. Signed credit VAT remains signed. Approved recovery cannot exceed printed VAT magnitude and must follow its sign; unreviewed stays NULL. Posting requires at least one line, matching stated/calculated gross when stated, valid dates, supplier, and required issued facts or explicit missing-evidence flags.
 
@@ -189,8 +191,8 @@ All capacities below use active posted records only, including reviewed opening 
 6. Person due per entitlement = original entitlement − supplier refunds received by that person − company reimbursements + reimbursement returns. Must stay >=0. A supplier refund received by the company leaves person due unchanged. A personal refund exceeding remaining entitlement is blocked until a reimbursement return is recorded; show the real-world recovery task clearly. Refund of company-funded money to a personal account needs a person-receivable extension and is outside MVP posting support; retain evidence and an unresolved issue rather than misclassifying it.
 7. Reimbursement allocation totals equal movement amount, belong to the same person, and cannot exceed due. Returns cannot exceed earlier net reimbursements. Reimbursing a person settles company liability, never another purchase or supplier invoice payment.
 8. Funding outstanding by position = receipt/opening funding principal − returns. None enters revenue or purchase totals. Legal classification affects funding reports only.
-9. Installment settlement cannot exceed source amount or installment amount. A bill schedule covers its positive gross; installments already settled remain included. An approved contract schedule covers its ceiling. When an invoice replaces contract milestones, retire covered milestones and create bill installments in one command; never count both schedules as separate future obligations. Remaining unpaid bill installments plus unscheduled bill balance must equal bill open. Credits require explicit schedule amendment.
-10. Contract invoiced = net active linked invoices; contract paid = linked direct payments plus funded advances, excluding returns and without adding advance applications again. Uninvoiced commitment estimate = max(ceiling − net invoiced, 0), flagged if invoicing exceeds ceiling. It is a forecast, not a payable. Exclude refundable security from purchase settlement and contract spending unless specifically included in contract terms.
+9. Installment settlement cannot exceed source amount or installment amount. A bill schedule covers its positive gross; installments already settled remain included. An approved contract schedule covers its ceiling, on the ceiling's VAT basis. Bill installments are always gross. When an invoice replaces contract milestones, retire covered milestones and create bill installments in one command; never count both schedules as separate future obligations. Remaining unpaid bill installments plus unscheduled bill balance must equal bill open. Credits require explicit schedule amendment.
+10. Contract invoiced (comparison basis) = active linked invoices after credits, measured as gross when `ceiling_vat_included` = 1 and as line net (excl. VAT) when 0. Contract paid = linked direct payments plus funded advances, excluding returns and without adding advance applications again; always actual VND. Uninvoiced commitment estimate = max(ceiling − invoiced on the same basis, 0), labelled with its basis, flagged if invoicing exceeds the ceiling. It is a forecast, not a payable. Exclude refundable security from purchase settlement and contract spending unless specifically included in contract terms.
 11. Purchase reporting counts active invoice lines once; cash reporting counts account legs once; personal supplier payments do not reduce company funds. Committed, invoiced, and paid are parallel figures, never summed as total spending. Other receipts do not imply profitability.
 12. An identical complete invoice identity is blocked; same supplier/date/amount or identical file hash is a duplicate warning, not automatic merging. Invoice numbers and tax codes remain strings with leading zeros.
 
@@ -230,7 +232,7 @@ An 11m personally paid invoice can still be recorded, but opens a >=5m policy ex
 
 ### 5.5 Contracts, deposits, installments, and refundable security
 
-For a 1.3bn equipment contract with 300m/700m/300m milestones:
+For a 1.3bn equipment contract (VAT included toggle on) with 300m/700m/300m milestones. If the same contract were quoted as 1.2bn excl. VAT (toggle off), the ceiling would be compared with the invoice's line net and labelled "excl. VAT", while payments still total the actual gross paid:
 
 1. Approve contract; pay 300m from bank to a purchase advance lot. Committed 1.3bn, paid 300m, advance 300m, invoiced 0. No purchase line yet.
 2. Receive 1.3bn invoice, link contract, create asset candidate, and apply advance 300m without another cash movement. Retire corresponding contract milestones and build invoice schedule retaining settled deposit.
@@ -269,7 +271,7 @@ Vietnamese UI labels, optional English export dictionary; `1.300.000.000 ₫`, `
 | Purchases | Search; selectable rows; named date basis, supplier, treatment, payment/review filters; net, printed VAT, gross, settled, open. Detail tabs: lines/VAT, payments, installments, documents, history. Show issued recipient and source alongside suggestions. |
 | Payment form | Purpose/date/time/amount, company account or person, actual method, supplier, allocations/open capacity, remainder, evidence, authorization; policy warning and exception reason; preview company funds and person due before posting. |
 | People & reimbursements | Person → invoice gross, personal amount paid, reimbursements by date/time/method, refunds/returns, remaining due. Select entitlements and allocate a partial reimbursement; never a single unexplained owner balance. |
-| Contracts & assets | Contract ceiling, net invoices, total paid once, advances, unpaid installments, uninvoiced estimate; schedule conversion preview. Basic asset candidates, line links, provisional cost and accountant classification. |
+| Contracts & assets | Contract ceiling with "VAT included" toggle and basis label, invoices on the same basis, total paid once, advances, unpaid installments, uninvoiced estimate; schedule conversion preview. Basic asset candidates, line links, provisional cost and accountant classification. |
 | Inbox & documents | Upload, safe preview/download, XML suggestions, manual fallback, evidence links/types, missing evidence; originals retained. |
 | Review queue | Policy exceptions, legal funding classification, VAT/CIT, duplicates, missing proof, recipient mismatch, unscheduled balance, and reconciliation differences; record external accountant decisions. |
 | Export | Selected rows OR date-filtered scope; date basis, record families, linked context option, preview counts, current-values notice, generate/download `.xlsx`. |
@@ -304,7 +306,7 @@ Every data row includes stable record ID, parent/reference IDs where applicable,
 | `Cash_Movements` | All company account legs, including transfers, funding and reimbursements; movement ID and leg direction; per-account opening/closing section. Cross-sheet overlap is explicitly explained. |
 | `Funding` | Investor, receipt account/date/amount, proposed/confirmed class, evidence, returns, remaining principal, registered-capital comparison in a separate reference section. |
 | `Reimbursements` | Original person payment/entitlement, linked invoices and gross, personal amount, every reimbursement/return, date/time/method, supplier personal refunds, remaining due. |
-| `Contracts`, `Installments` | Ceilings, invoice links, advances, paid totals, open/retired schedule, due/trigger and settlement. |
+| `Contracts`, `Installments` | Ceilings, VAT included (Y/N), comparison basis (gross / excl. VAT), invoiced on that basis, invoice links, advances, paid totals, open/retired schedule, due/trigger and settlement. |
 | `Balances` | Full-company company-account, supplier, advance/security, person and funding balances as of selected date; explicitly independent of selected transaction totals. |
 | `Documents` | Document ID/type/date/name/hash, linked record IDs and availability; authenticated application reference, not a public or expiring URL presented as archival evidence. |
 | `Issues`, `History` | Relevant review issues and optional field-level audit, reasons and timestamps. Not a delta feed. |
@@ -318,7 +320,7 @@ Supporting originals are obtained separately through authenticated document down
 
 - Strong authenticated owner login, rate limiting, protected sessions, CSRF protection, and reauthentication for restore/credential changes. Use private HTTPS access remotely and encrypted device/storage. Keep secrets outside source, exports, and database backups unless separately protected.
 - Store documents privately; authenticated handlers authorize every preview/download. Validate PDF/JPEG/PNG/XML signatures and parsing, default 25 MB/file configurable; reject executable files and uploaded archives in MVP. Disable XML external entities/network resolution; isolate PDF/image processing with size/page/time limits. Quarantine, hash, scan where available, then atomically store originals before linking metadata. Preserve originals; derivatives never replace them.
-- No patient health information. Limit payroll and personal-bank details. Log necessary financial fields without credentials or file contents. Warn that exported files contain sensitive company/person information; owner chooses secure sharing.
+- No patient health information. Limit personal-bank details. Log necessary financial fields without credentials or file contents. Warn that exported files contain sensitive company/person information; owner chooses secure sharing.
 - Use a configurable retention policy approved by the accountant for each record/document class. Until approved, disable automatic business-record deletion. Legal holds override cleanup; backup rotation must not delete the only retained original. Do not present one fixed retention duration as universally legally sufficient.
 
 Recovery target: no more than 24 hours of data loss and restore within four hours, subject to a verified off-device backup and tested recovery environment.
@@ -384,7 +386,7 @@ Use automated service-level integration tests for money invariants, concurrency 
 | 9 | Authorized employee pays 3.8m; company reimburses 2m cash then 1.8m bank. | Supplier open 0; due 3.8m →1.8m →0; company outflows 3.8m total; purchase stays 3.8m. Name, dates/time and methods retained. |
 | 10 | Person pays 11m despite policy; reimburse 4m. | Actual personal payment retained, exception open; supplier settled; person due 7m; company funds −4m; no legal eligibility implied. |
 | 11 | One bill funded by company and two people; one payment covers two bills. | Capacities reconcile per payment/bill/person; no personal account balance invented; no duplicate reimbursement. |
-| 12 | 1.3bn contract →300m bank advance →1.3bn invoice/application →700m →300m. | One 1.3bn purchase, three supplier outflows; advance 0 after application; open 300m then 0; no double schedule or 1.6bn paid total. |
+| 12 | 1.3bn contract →300m bank advance →1.3bn invoice/application →700m →300m. Repeat with the VAT toggle off (1.2bn excl. VAT ceiling, invoice 1.2bn net + 96m VAT). | One 1.3bn purchase, three supplier outflows; advance 0 after application; open 300m then 0; no double schedule or 1.6bn paid total. Toggle off: ceiling compared with 1.2bn net, labelled "excl. VAT"; no false over-ceiling warning; paid shows actual gross. |
 | 13 | Refundable security returned; advance rent; chair; supplies. | Security refund reduces deposit only; treatment categories remain separate; no automatic full OPEX/depreciation. |
 | 14 | Settled 11m bill, −1m credit, then refund or offset. | Credit open −1m →0, charge not settled twice; competing refund/offset cannot consume same credit twice. |
 | 15 | 300m uninvoiced advance refunded in part 50m. | Advance 250m; company account +50m; origins match; no credit invoice or negative OPEX fabricated. |
@@ -409,6 +411,8 @@ Confirm company legal form and investor/payer roles; registered-capital referenc
 These are implementation/configuration inputs. Routine recording can retain unresolved review states; the software must never silently convert missing review into a tax or legal assertion.
 
 ## 13. Changes from v1 and contradiction resolutions
+
+- v2.1 (owner decisions, 13 Nov 2026): added the contract `ceiling_vat_included` toggle with a same-basis comparison rule; removed payroll-summary payables and staff-cost categories, deferring payroll to a later stage.
 
 - Replaced owner-only funding/payment assumptions with actual company cash/bank funding and any authorized payer; no tracked personal-bank pseudo balances.
 - Separated funding received, proposed classification, confirmed legal classification, registered capital, investor loans, and reimbursement dues.
